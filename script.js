@@ -990,28 +990,30 @@ function drawUI() {
   ctx.font = "20px Arial";
   ctx.textAlign = "left";
 
-  // score information
+  // Score and bird counters
   ctx.fillText("Score: " + score, 20, 30);
   ctx.fillText("Birds Saved: " + birdsSaved, 20, 55);
-  ctx.fillText("Birds Missed: " + birdsMissed, 20, 80);
-
-  // difficulty information
-  ctx.fillText("Phase: " + getDifficultyPhase(), 20, 105);
-  ctx.fillText("Level: " + getLateGameLevel(), 20, 130);
-
-  // menu option
-  ctx.fillText("M: Menu", 20, 155);
 
   // game over message
   if (gameState === "gameOver") {
-    ctx.fillStyle = "black";
-    ctx.font = "40px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
+    // result panel
+    ctx.fillStyle = "rgba(39, 37, 37, 0.8)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.font = "20px Arial";
-    ctx.fillText("Press R to Restart", canvas.width / 2, canvas.height / 2 + 40);
-    ctx.fillText("Press M for Menu", canvas.width / 2, canvas.height / 2 + 70);
+    ctx.fillStyle = "white";
+    ctx.textAlign = "center";
+
+    ctx.font = "40px Arial";
+    ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 60);
+
+    ctx.font = "22px Arial";
+    ctx.fillText("Final Score: " + score, canvas.width / 2, canvas.height / 2 - 20);
+    ctx.fillText("Birds Saved: " + birdsSaved, canvas.width / 2, canvas.height / 2 + 10);
+    ctx.fillText("Birds Missed: " + birdsMissed, canvas.width / 2, canvas.height / 2 + 40);
+
+    ctx.font = "18px Arial";
+    ctx.fillText("Press R to Restart", canvas.width / 2, canvas.height / 2 + 80);
+    ctx.fillText("Press M for Menu", canvas.width / 2, canvas.height / 2 + 105);
   }
 }
 
@@ -1083,8 +1085,8 @@ function draw() {
   drawObstacles();
   drawSideObstacles();
   drawPlayer();
-  drawUI();
   drawFeedbackTexts();
+  drawUI();
 }
 
 // =========================
