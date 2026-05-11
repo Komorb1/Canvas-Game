@@ -252,15 +252,15 @@ function updateDifficultySettings() {
 
   // phase 1: only lane obstacles
   if (phase === 1) {
-    obstacleInterval = 110;
+    obstacleInterval = 145;
     birdInterval = 9999;
     sideObstacleInterval = 9999;
   }
 
   // phase 2: lane obstacles + birds
   else if (phase === 2) {
-    obstacleInterval = 100;
-    birdInterval = 180;
+    obstacleInterval = 125;
+    birdInterval = 210;
     sideObstacleInterval = 9999;
   }
 
@@ -285,11 +285,11 @@ function getLaneObstacleSpeed() {
   const lateLevel = getLateGameLevel();
 
   if (phase === 1) {
-    return 4;
+    return 3.2;
   }
 
   if (phase === 2) {
-    return 4.5;
+    return 3.8;
   }
 
   if (phase === 3) {
@@ -347,31 +347,43 @@ function isColliding(a, b) {
 
 // lane obstacles only become dangerous near the player area
 function isObstacleNearPlayer(obstacle) {
-  return obstacle.baseY >= groundY - 15 && obstacle.baseY <= groundY + 15;
+  return obstacle.baseY >= groundY - 25 && obstacle.baseY <= groundY + 20;
+}
+
+function getPerspectiveScale(baseY) {
+  // objects are small when far away and larger when close to the player
+  const progress = Math.max(0, Math.min(1, baseY / groundY));
+
+  // starts at 45% size, grows to 120% size near the player
+  return 0.45 + progress * 0.75;
 }
 
 // get the real rectangle of a lane obstacle
 function getObstacleBox(obstacle) {
+  const scale = getPerspectiveScale(obstacle.baseY);
+
+  const scaledWidth = obstacle.width * scale;
+  const scaledHeight = obstacle.height * scale;
+
   // obstacle x depends on its lane
-  const x = lanes[obstacle.laneIndex] - obstacle.width / 2;
+  const x = lanes[obstacle.laneIndex] - scaledWidth / 2;
 
   let y;
 
   if (obstacle.type === "ground") {
-    // ground obstacle is low
-    // player should jump over it
-    y = obstacle.baseY - obstacle.height;
+    // ground obstacle grows as it gets closer
+    y = obstacle.baseY - scaledHeight;
   } else {
-    // air obstacle is higher
-    // player should roll under it
-    y = obstacle.baseY - 85;
+    // air obstacle also grows, but stays above the ground
+    y = obstacle.baseY - 85 * scale;
   }
 
   return {
     x: x,
     y: y,
-    width: obstacle.width,
-    height: obstacle.height
+    width: scaledWidth,
+    height: scaledHeight,
+    scale: scale
   };
 }
 
@@ -449,14 +461,15 @@ function spawnSideObstacle() {
 
   if (type === "dog") {
     // dog runs on the ground
-    width = 85;
-    height = 50;
+    // made larger so it is easier to see
+    width = 115;
+    height = 68;
     y = groundY - height;
   } else {
     // frisbee flies in the air
-    width = 70;
-    height = 28;
-    y = groundY - 95;
+    width = 110;
+    height = 44;
+    y = groundY - 105;
   }
 
   // get speed based on difficulty
@@ -486,20 +499,20 @@ function spawnBird() {
   if (birdType === 0) {
     // left bird
     // save with Z
-    x = 80;
-    targetLine = 170;
+    x = 70;
+    targetLine = 360;
     correctKey = "z";
   } else if (birdType === 1) {
     // middle bird
     // save with X
-    x = canvas.width / 2 - 20;
-    targetLine = 250;
+    x = canvas.width / 2 - 55;
+    targetLine = 340;
     correctKey = "x";
   } else {
     // right bird
     // save with C
-    x = canvas.width - 120;
-    targetLine = 170;
+    x = canvas.width - 180;
+    targetLine = 360;
     correctKey = "c";
   }
 
@@ -507,8 +520,8 @@ function spawnBird() {
   birds.push({
     x: x,
     y: -50,
-    width: 70,
-    height: 50,
+    width: 110,
+    height: 80,
     speed: getBirdSpeed(),
     type: birdType,
     targetLine: targetLine,
@@ -604,15 +617,32 @@ function spawnBandAid(targetKey) {
   let targetX;
   let targetY;
 
-  if (targetKey === "z") {
-    targetX = 120;
-    targetY = 170;
-  } else if (targetKey === "x") {
-    targetX = canvas.width / 2;
-    targetY = 250;
+  // aim at the first falling bird that matches the pressed key
+  let targetBird = null;
+
+  for (let i = 0; i < birds.length; i++) {
+    if (birds[i].correctKey === targetKey && birds[i].state === "falling") {
+      targetBird = birds[i];
+      break;
+    }
+  }
+
+  // if there is a matching bird, throw directly toward it
+  if (targetBird !== null) {
+    targetX = targetBird.x + targetBird.width / 2;
+    targetY = targetBird.y + targetBird.height / 2;
   } else {
-    targetX = 680;
-    targetY = 170;
+    // fallback: throw upward instead of toward the ground
+    if (targetKey === "z") {
+      targetX = 120;
+      targetY = 150;
+    } else if (targetKey === "x") {
+      targetX = canvas.width / 2;
+      targetY = 130;
+    } else {
+      targetX = 680;
+      targetY = 150;
+    }
   }
 
   const startX = player.x + player.width / 2;
@@ -810,7 +840,9 @@ function updateSideObstacles() {
         playerBox.x + playerBox.width > sideObstacle.x;
 
       if (sameHorizontalArea && !player.isRolling) {
-        gameState = "gameOver";
+        if (!rushMode) {
+          gameState = "gameOver";
+        }
       }
     }
 
@@ -955,11 +987,7 @@ function update() {
 
 // draw the sky/background
 function drawBackground() {
-  if (selectedMap === "park") {
-    drawParkBackground();
-  } else {
-    drawForestBackground();
-  }
+  drawParkBackground();
 }
 
 // draw park map background
@@ -1097,6 +1125,17 @@ function drawFallingBird(bird) {
   }
 
   ctx.restore();
+
+  // draw key label after restore so it is not flipped
+  ctx.fillStyle = "black";
+  ctx.font = "22px Arial";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(
+    bird.correctKey.toUpperCase(),
+    bird.x + bird.width / 2,
+    bird.y - 15
+  );
 }
 
 function drawSavedBird(bird) {
@@ -1183,10 +1222,10 @@ function drawObstacles() {
       if (picnicImage.complete && picnicImage.width > 0) {
         ctx.drawImage(
           picnicImage,
-          box.x - 15,
-          box.y - 15,
-          box.width + 30,
-          box.height + 25
+          box.x - 15 * box.scale,
+          box.y - 15 * box.scale,
+          box.width + 30 * box.scale,
+          box.height + 25 * box.scale
         );
       } else {
         ctx.font = "42px Arial";
@@ -1199,10 +1238,10 @@ function drawObstacles() {
       if (branchImage.complete && branchImage.width > 0) {
         ctx.drawImage(
           branchImage,
-          box.x - 25,
-          box.y - 20,
-          box.width + 50,
-          box.height + 25
+          box.x - 25 * box.scale,
+          box.y - 20 * box.scale,
+          box.width + 50 * box.scale,
+          box.height + 25 * box.scale
         );
       } else {
         ctx.font = "38px Arial";
@@ -1276,7 +1315,7 @@ function drawSideObstacles() {
       const drawn = drawSideSprite(dogSprite, sideObstacle);
 
       if (!drawn) {
-        ctx.font = "42px Arial";
+        ctx.font = "54px Arial";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(
@@ -1289,7 +1328,7 @@ function drawSideObstacles() {
       const drawn = drawSideSprite(frisbeeSprite, sideObstacle);
 
       if (!drawn) {
-        ctx.font = "36px Arial";
+        ctx.font = "48px Arial";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(
@@ -1309,7 +1348,7 @@ function drawSideObstacles() {
 // draw player
 function drawPlayer() {
   if (!playerSprite.complete || playerSprite.width === 0) {
-    ctx.font = "48px Arial";
+    ctx.font = "58px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("🏃", player.x + player.width / 2, player.y + player.height / 2);
@@ -1385,12 +1424,12 @@ function drawPlayer() {
   const sourceX = frameIndex * frameWidth;
   const sourceY = row * frameHeight;
 
-  let drawWidth = 52;
-  let drawHeight = 70;
+  let drawWidth = 62;
+  let drawHeight = 82;
 
   if (player.isRolling) {
-    drawWidth = 62;
-    drawHeight = 58;
+    drawWidth = 74;
+    drawHeight = 68;
   }
 
   const drawX = player.x + player.width / 2 - drawWidth / 2;
@@ -1498,20 +1537,16 @@ function drawMenu() {
 
   // map choices
   ctx.font = "26px Arial";
-  ctx.fillText("Choose a Map", canvas.width / 2, 150);
-
-  ctx.font = "22px Arial";
-  ctx.fillText("Press 1 - Park Map", canvas.width / 2, 200);
-  ctx.fillText("Press 2 - Forest Map", canvas.width / 2, 235);
+  ctx.fillText("Press Enter to Start", canvas.width / 2, 170);
 
   // controls
   ctx.font = "18px Arial";
-  ctx.fillText("Controls:", canvas.width / 2, 300);
-  ctx.fillText("Arrow Left / Right: Switch lanes", canvas.width / 2, 330);
-  ctx.fillText("Space / Arrow Up: Jump", canvas.width / 2, 355);
-  ctx.fillText("Arrow Down: Roll or Fast Drop", canvas.width / 2, 380);
-  ctx.fillText("Z / X / C: Save birds", canvas.width / 2, 405);
-  ctx.fillText("M: Return to Menu", canvas.width / 2, 430);
+  ctx.fillText("Controls:", canvas.width / 2, 250);
+  ctx.fillText("Arrow Left / Right: Switch lanes", canvas.width / 2, 280);
+  ctx.fillText("Space / Arrow Up: Jump", canvas.width / 2, 305);
+  ctx.fillText("Arrow Down: Roll or Fast Drop", canvas.width / 2, 330);
+  ctx.fillText("Z / X / C: Save birds", canvas.width / 2, 355);
+  ctx.fillText("M: Return to Menu", canvas.width / 2, 380);
 }
 
 // draw floating feedback texts
@@ -1572,9 +1607,6 @@ function draw() {
 
   // draw everything in order
   drawBackground();
-  //drawLanes();
-  //drawGround();
-  //drawBirdRescueLines();
   drawBirds();
   drawObstacles();
   drawSideObstacles();
@@ -1665,15 +1697,9 @@ document.addEventListener("keydown", function(event) {
     resetObjectsOnly();
   }
 
-  // choose park map from menu
-  if (gameState === "menu" && event.key === "1") {
+  // start game from menu
+  if (gameState === "menu" && event.key === "Enter") {
     selectedMap = "park";
-    resetGame();
-  }
-
-  // choose forest map from menu
-  if (gameState === "menu" && event.key === "2") {
-    selectedMap = "forest";
     resetGame();
   }
 
