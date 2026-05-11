@@ -9,6 +9,46 @@ const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 
 // =========================
+// Image Assets
+// =========================
+
+const birdFallingImage = new Image();
+birdFallingImage.src = "assets/BirdFalling.png";
+
+const birdSavedSprite = new Image();
+birdSavedSprite.src = "assets/bird.png";
+
+// make pixel art sharper
+ctx.imageSmoothingEnabled = false;
+
+// bandaged bird sprite sheet has 4 frames
+const savedBirdFrameCount = 4;
+
+const parkBackgroundImage = new Image();
+parkBackgroundImage.src = "assets/park.png";
+
+const picnicImage = new Image();
+picnicImage.src = "assets/picnic.png";
+
+const branchImage = new Image();
+branchImage.src = "assets/branch.png";
+
+const dogSprite = new Image();
+dogSprite.src = "assets/dog.png";
+
+const frisbeeSprite = new Image();
+frisbeeSprite.src = "assets/frisbee.png";
+
+const sideObstacleFrameCount = 4;
+
+const playerSprite = new Image();
+playerSprite.src = "assets/player.png";
+
+// this sprite sheet is 8 columns x 8 rows
+const playerSpriteColumns = 8;
+const playerSpriteRows = 6;
+
+// =========================
 // Basic Game Definitions
 // =========================
 
@@ -44,6 +84,13 @@ let scoreTimer = 0;
 let birdsSaved = 0;
 let birdsMissed = 0;
 
+let birdSaveStreak = 0;
+
+let rushMode = false;
+let rushTimer = 0;
+const rushDuration = 420; // about 7 seconds at 60fps
+const rushNeeded = 10;
+
 // =========================
 // Player Object
 // =========================
@@ -74,6 +121,14 @@ const player = {
   // used when player presses down while jumping
   wantsRollAfterLanding: false
 };
+
+let playerAction = "run";
+let playerActionTimer = 0;
+
+function setPlayerAction(action, duration) {
+  playerAction = action;
+  playerActionTimer = duration;
+}
 
 // =========================
 // Obstacle Arrays and Timers
@@ -106,6 +161,9 @@ let birdInterval = 140;
 
 // small text messages like Saved or Missed
 const feedbackTexts = [];
+
+// band-aids thrown by the player
+const bandAids = [];
 
 // =========================
 // Player Helper Functions
@@ -364,8 +422,8 @@ function spawnObstacle() {
   obstacles.push({
     laneIndex: laneIndex,
     baseY: -50,
-    width: 50,
-    height: type === "ground" ? 45 : 35,
+    width: type === "ground" ? 75 : 85,
+    height: type === "ground" ? 50 : 35,
     speed: getLaneObstacleSpeed(),
     type: type
   });
@@ -391,13 +449,13 @@ function spawnSideObstacle() {
 
   if (type === "dog") {
     // dog runs on the ground
-    width = 60;
-    height = 35;
+    width = 85;
+    height = 50;
     y = groundY - height;
   } else {
     // frisbee flies in the air
-    width = 55;
-    height = 25;
+    width = 70;
+    height = 28;
     y = groundY - 95;
   }
 
@@ -448,15 +506,19 @@ function spawnBird() {
   // add bird to the array
   birds.push({
     x: x,
-    y: -40,
-    width: 40,
-    height: 30,
+    y: -50,
+    width: 70,
+    height: 50,
     speed: getBirdSpeed(),
     type: birdType,
     targetLine: targetLine,
     correctKey: correctKey,
     state: "falling",
-    savedTimer: 0
+    savedTimer: 0,
+
+    // movement after being saved
+    savedVx: 0,
+    savedVy: 0
   });
 }
 
@@ -473,8 +535,31 @@ function saveBird(key) {
     // only falling birds can be saved
     if (bird.correctKey === key && bird.state === "falling") {
       bird.state = "saved";
-      bird.savedTimer = 20;
+      bird.savedTimer = 70;
       birdsSaved++;
+      birdSaveStreak++;
+
+      if (birdSaveStreak >= rushNeeded) {
+        activateRushMode();
+      }
+
+      // left bird flies toward top-left
+      if (bird.type === 0) {
+        bird.savedVx = -3.2;
+        bird.savedVy = -4.2;
+      }
+
+      // middle bird flies mostly upward
+      else if (bird.type === 1) {
+        bird.savedVx = 0;
+        bird.savedVy = -4.8;
+      }
+
+      // right bird flies toward top-right
+      else {
+        bird.savedVx = 3.2;
+        bird.savedVy = -4.2;
+      }
 
       // show saved message near the bird
       addFeedbackText("Saved!", bird.x + bird.width / 2, bird.y);
@@ -491,6 +576,55 @@ function addFeedbackText(text, x, y) {
     x: x,
     y: y,
     timer: 40
+  });
+}
+
+function activateRushMode() {
+  rushMode = true;
+  rushTimer = rushDuration;
+  birdSaveStreak = 0;
+
+  addFeedbackText("RUSH MODE!", canvas.width / 2, 120);
+}
+
+function updateRushMode() {
+  if (!rushMode) {
+    return;
+  }
+
+  rushTimer--;
+
+  if (rushTimer <= 0) {
+    rushMode = false;
+    rushTimer = 0;
+  }
+}
+
+function spawnBandAid(targetKey) {
+  let targetX;
+  let targetY;
+
+  if (targetKey === "z") {
+    targetX = 120;
+    targetY = 170;
+  } else if (targetKey === "x") {
+    targetX = canvas.width / 2;
+    targetY = 250;
+  } else {
+    targetX = 680;
+    targetY = 170;
+  }
+
+  const startX = player.x + player.width / 2;
+  const startY = player.y + 20;
+
+  bandAids.push({
+    x: startX,
+    y: startY,
+    targetX: targetX,
+    targetY: targetY,
+    timer: 25,
+    maxTimer: 25
   });
 }
 
@@ -566,6 +700,14 @@ function updatePlayer() {
       stopRoll();
     }
   }
+
+  if (playerActionTimer > 0) {
+    playerActionTimer--;
+
+    if (playerActionTimer <= 0) {
+      playerAction = "run";
+    }
+  }
 }
 
 // update lane obstacles
@@ -596,7 +738,9 @@ function updateObstacles() {
         // ground obstacle uses normal collision
         // player can jump over it
         if (isColliding(playerBox, obstacleBox)) {
-          gameState = "gameOver";
+          if (!rushMode) {
+            gameState = "gameOver";
+          }
         }
       }
 
@@ -608,7 +752,9 @@ function updateObstacles() {
           playerBox.x + playerBox.width > obstacleBox.x;
 
         if (sameLaneArea && !player.isRolling) {
-          gameState = "gameOver";
+          if (!rushMode) {
+            gameState = "gameOver";
+          }
         }
       }
     }
@@ -650,7 +796,9 @@ function updateSideObstacles() {
       // dog is on ground
       // player can jump over it
       if (isColliding(playerBox, sideObstacle)) {
-        gameState = "gameOver";
+        if (!rushMode) {
+          gameState = "gameOver";
+        }
       }
     }
 
@@ -703,7 +851,7 @@ function updateBirds() {
       // if bird reaches rescue line, it is missed
       if (bird.y + bird.height >= bird.targetLine) {
         birdsMissed++;
-
+        birdSaveStreak = 0;
         // show missed message near the rescue line
         addFeedbackText("Missed!", bird.x + bird.width / 2, bird.targetLine);
 
@@ -712,12 +860,32 @@ function updateBirds() {
     }
 
     if (bird.state === "saved") {
-      // saved bird flies upward for a short time
       bird.savedTimer--;
-      bird.y -= 4;
 
-      // remove saved bird after animation
-      if (bird.savedTimer <= 0) {
+      // move saved bird
+      bird.x += bird.savedVx;
+      bird.y += bird.savedVy;
+
+      // curve left bird more toward top-left
+      if (bird.type === 0) {
+        bird.savedVx -= 0.03;
+      }
+
+      // curve right bird more toward top-right
+      else if (bird.type === 2) {
+        bird.savedVx += 0.03;
+      }
+
+      // reduce upward speed slowly to create a curved flight
+      bird.savedVy += 0.03;
+
+      // remove saved bird after animation or when off screen
+      if (
+        bird.savedTimer <= 0 ||
+        bird.y + bird.height < -40 ||
+        bird.x + bird.width < -40 ||
+        bird.x > canvas.width + 40
+      ) {
         birds.splice(i, 1);
       }
     }
@@ -743,6 +911,23 @@ function updateFeedbackTexts() {
   }
 }
 
+function updateBandAids() {
+  for (let i = bandAids.length - 1; i >= 0; i--) {
+    const bandAid = bandAids[i];
+
+    bandAid.timer--;
+
+    const progress = 1 - bandAid.timer / bandAid.maxTimer;
+
+    bandAid.x = bandAid.x + (bandAid.targetX - bandAid.x) * 0.18;
+    bandAid.y = bandAid.y + (bandAid.targetY - bandAid.y) * 0.18;
+
+    if (bandAid.timer <= 0) {
+      bandAids.splice(i, 1);
+    }
+  }
+}
+
 // main update function
 function update() {
   // only update the game while playing
@@ -753,6 +938,7 @@ function update() {
   // update score and difficulty
   updateScore();
   updateDifficultySettings();
+  updateRushMode();
 
   // update game objects
   updatePlayer();
@@ -760,6 +946,7 @@ function update() {
   updateSideObstacles();
   updateBirds();
   updateFeedbackTexts();
+  updateBandAids();
 }
 
 // =========================
@@ -777,27 +964,20 @@ function drawBackground() {
 
 // draw park map background
 function drawParkBackground() {
-  // sky
-  ctx.fillStyle = "#87ceeb";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // fallback if background image is not loaded
+  if (!parkBackgroundImage.complete || parkBackgroundImage.width === 0) {
+    ctx.fillStyle = "#87ceeb";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
 
-  // grass
-  ctx.fillStyle = "#5dbb63";
-  ctx.fillRect(0, groundY, canvas.width, canvas.height - groundY);
-
-  // road/path
-  ctx.fillStyle = "#c2a477";
-  ctx.fillRect(190, 0, 420, canvas.height);
-
-  // simple trees on the sides
-  ctx.font = "42px Arial";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  ctx.fillText("🌳", 80, 360);
-  ctx.fillText("🌳", 120, 250);
-  ctx.fillText("🌳", 700, 340);
-  ctx.fillText("🌳", 740, 230);
+  ctx.drawImage(
+    parkBackgroundImage,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
 }
 
 // draw forest map background
@@ -880,25 +1060,110 @@ function drawBirdRescueLines() {
   ctx.fillText("C", 680, 160);
 }
 
+function drawFallingBird(bird) {
+  // fallback if image has not loaded yet
+  if (!birdFallingImage.complete || birdFallingImage.width === 0) {
+    ctx.font = "34px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("🐦", bird.x + bird.width / 2, bird.y + bird.height / 2);
+    return;
+  }
+
+  // right bird should face right
+  const shouldFlip = bird.type === 2;
+
+  ctx.save();
+
+  if (shouldFlip) {
+    ctx.translate(bird.x + bird.width, bird.y);
+    ctx.scale(-1, 1);
+
+    ctx.drawImage(
+      birdFallingImage,
+      0,
+      0,
+      bird.width,
+      bird.height
+    );
+  } else {
+    ctx.drawImage(
+      birdFallingImage,
+      bird.x,
+      bird.y,
+      bird.width,
+      bird.height
+    );
+  }
+
+  ctx.restore();
+}
+
+function drawSavedBird(bird) {
+  // fallback if sprite sheet has not loaded yet
+  if (!birdSavedSprite.complete || birdSavedSprite.width === 0) {
+    ctx.font = "34px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("🐦", bird.x + bird.width / 2, bird.y + bird.height / 2);
+    return;
+  }
+
+  const frameWidth = birdSavedSprite.width / savedBirdFrameCount;
+  const frameHeight = birdSavedSprite.height;
+
+  // animation frame
+  const frameIndex = Math.floor(Date.now() / 120) % savedBirdFrameCount;
+
+  const sourceX = frameIndex * frameWidth;
+  const sourceY = 0;
+
+  // right bird should face right
+  const shouldFlip = bird.type === 2;
+
+  ctx.save();
+
+  if (shouldFlip) {
+    ctx.translate(bird.x + bird.width, bird.y);
+    ctx.scale(-1, 1);
+
+    ctx.drawImage(
+      birdSavedSprite,
+      sourceX,
+      sourceY,
+      frameWidth,
+      frameHeight,
+      0,
+      0,
+      bird.width,
+      bird.height
+    );
+  } else {
+    ctx.drawImage(
+      birdSavedSprite,
+      sourceX,
+      sourceY,
+      frameWidth,
+      frameHeight,
+      bird.x,
+      bird.y,
+      bird.width,
+      bird.height
+    );
+  }
+
+  ctx.restore();
+}
+
 // draw birds
 function drawBirds() {
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
   for (let i = 0; i < birds.length; i++) {
     const bird = birds[i];
 
     if (bird.state === "falling") {
-      ctx.font = "34px Arial";
-      ctx.fillText("🐦", bird.x + bird.width / 2, bird.y + bird.height / 2);
+      drawFallingBird(bird);
     } else {
-      // saved bird effect
-      ctx.font = "34px Arial";
-      ctx.fillText("🐦", bird.x + bird.width / 2, bird.y + bird.height / 2);
-
-      // small band-aid visual
-      ctx.font = "20px Arial";
-      ctx.fillText("🩹", bird.x + bird.width / 2 + 18, bird.y + bird.height / 2);
+      drawSavedBird(bird);
     }
 
     // optional hitbox for testing
@@ -909,21 +1174,42 @@ function drawBirds() {
 
 // draw lane obstacles
 function drawObstacles() {
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
   for (let i = 0; i < obstacles.length; i++) {
     const obstacle = obstacles[i];
     const box = getObstacleBox(obstacle);
 
     if (obstacle.type === "ground") {
-      // ground obstacle
-      ctx.font = "42px Arial";
-      ctx.fillText("🪨", box.x + box.width / 2, box.y + box.height / 2);
+      // picnic blanket obstacle: jump over
+      if (picnicImage.complete && picnicImage.width > 0) {
+        ctx.drawImage(
+          picnicImage,
+          box.x - 15,
+          box.y - 15,
+          box.width + 30,
+          box.height + 25
+        );
+      } else {
+        ctx.font = "42px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("🧺", box.x + box.width / 2, box.y + box.height / 2);
+      }
     } else {
-      // air obstacle
-      ctx.font = "38px Arial";
-      ctx.fillText("🌿", box.x + box.width / 2, box.y + box.height / 2);
+      // low branch obstacle: roll under
+      if (branchImage.complete && branchImage.width > 0) {
+        ctx.drawImage(
+          branchImage,
+          box.x - 25,
+          box.y - 20,
+          box.width + 50,
+          box.height + 25
+        );
+      } else {
+        ctx.font = "38px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("🌿", box.x + box.width / 2, box.y + box.height / 2);
+      }
     }
 
     // optional hitbox for testing
@@ -933,27 +1219,85 @@ function drawObstacles() {
 }
 
 // draw side obstacles
-function drawSideObstacles() {
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
+function drawSideSprite(sprite, obstacle) {
+  if (!sprite.complete || sprite.width === 0) {
+    return false;
+  }
 
+  const frameWidth = sprite.width / sideObstacleFrameCount;
+  const frameHeight = sprite.height;
+
+  const frameIndex = Math.floor(Date.now() / 120) % sideObstacleFrameCount;
+  const sourceX = frameIndex * frameWidth;
+
+  // if moving left, flip sprite
+  const shouldFlip = obstacle.speed < 0;
+
+  ctx.save();
+
+  if (shouldFlip) {
+    ctx.translate(obstacle.x + obstacle.width, obstacle.y);
+    ctx.scale(-1, 1);
+
+    ctx.drawImage(
+      sprite,
+      sourceX,
+      0,
+      frameWidth,
+      frameHeight,
+      0,
+      0,
+      obstacle.width,
+      obstacle.height
+    );
+  } else {
+    ctx.drawImage(
+      sprite,
+      sourceX,
+      0,
+      frameWidth,
+      frameHeight,
+      obstacle.x,
+      obstacle.y,
+      obstacle.width,
+      obstacle.height
+    );
+  }
+
+  ctx.restore();
+  return true;
+}
+
+function drawSideObstacles() {
   for (let i = 0; i < sideObstacles.length; i++) {
     const sideObstacle = sideObstacles[i];
 
     if (sideObstacle.type === "dog") {
-      ctx.font = "42px Arial";
-      ctx.fillText(
-        "🐕",
-        sideObstacle.x + sideObstacle.width / 2,
-        sideObstacle.y + sideObstacle.height / 2
-      );
+      const drawn = drawSideSprite(dogSprite, sideObstacle);
+
+      if (!drawn) {
+        ctx.font = "42px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(
+          "🐕",
+          sideObstacle.x + sideObstacle.width / 2,
+          sideObstacle.y + sideObstacle.height / 2
+        );
+      }
     } else {
-      ctx.font = "36px Arial";
-      ctx.fillText(
-        "🥏",
-        sideObstacle.x + sideObstacle.width / 2,
-        sideObstacle.y + sideObstacle.height / 2
-      );
+      const drawn = drawSideSprite(frisbeeSprite, sideObstacle);
+
+      if (!drawn) {
+        ctx.font = "36px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(
+          "🥏",
+          sideObstacle.x + sideObstacle.width / 2,
+          sideObstacle.y + sideObstacle.height / 2
+        );
+      }
     }
 
     // optional hitbox for testing
@@ -964,24 +1308,143 @@ function drawSideObstacles() {
 
 // draw player
 function drawPlayer() {
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-
-  // rolling player looks smaller
-  if (player.isRolling) {
-    ctx.font = "36px Arial";
-    ctx.fillText("🏃", player.x + player.width / 2, player.y + player.height / 2);
-  }
-
-  // normal player
-  else {
+  if (!playerSprite.complete || playerSprite.width === 0) {
     ctx.font = "48px Arial";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
     ctx.fillText("🏃", player.x + player.width / 2, player.y + player.height / 2);
+    return;
   }
 
-  // optional hitbox for testing
-  // ctx.strokeStyle = "black";
-  // ctx.strokeRect(player.x, player.y, player.width, player.height);
+  const frameWidth = playerSprite.width / playerSpriteColumns;
+  const frameHeight = playerSprite.height / playerSpriteRows;
+
+  let row = 0;
+  let frameCount = 8;
+  let frameSpeed = 120;
+  let shouldFlip = false;
+  let customFrameIndex = null;
+
+  // normal running
+  if (playerAction === "run") {
+    row = 0;
+    frameCount = 8;
+    frameSpeed = 120;
+  }
+
+  // dash left
+  if (playerAction === "dashLeft") {
+    row = 1;
+    frameCount = 8;
+    frameSpeed = 90;
+  }
+
+  // dash right = use same dash animation but flip it
+  if (playerAction === "dashRight") {
+    row = 1;
+    frameCount = 8;
+    frameSpeed = 90;
+    shouldFlip = true;
+  }
+
+  // jump
+  if (!isOnGround() && !player.isRolling) {
+    row = 3;
+    frameCount = 8;
+    frameSpeed = 130;
+  }
+
+  // roll / duck
+  // use only crouch frames, not the lying-down frames
+  if (player.isRolling) {
+    row = 4;
+    frameSpeed = 5;
+
+    // front-roll frames from row 4
+    const rollFrames = [0, 1, 2, 3, 4, 5];
+
+    const rollProgress = player.rollDuration - player.rollTimer;
+    const rollIndex = Math.floor(rollProgress / frameSpeed) % rollFrames.length;
+
+    customFrameIndex = rollFrames[rollIndex];
+  }
+
+  // throw
+  if (playerAction === "throw" && !player.isRolling) {
+    row = 5;
+    frameCount = 8;
+    frameSpeed = 100;
+  }
+
+  let frameIndex = Math.floor(Date.now() / frameSpeed) % frameCount;
+
+  if (customFrameIndex !== null) {
+    frameIndex = customFrameIndex;
+  }
+
+  const sourceX = frameIndex * frameWidth;
+  const sourceY = row * frameHeight;
+
+  let drawWidth = 52;
+  let drawHeight = 70;
+
+  if (player.isRolling) {
+    drawWidth = 62;
+    drawHeight = 58;
+  }
+
+  const drawX = player.x + player.width / 2 - drawWidth / 2;
+
+  const feetY = player.y + player.height;
+  let drawY = feetY - drawHeight + 6;
+
+  if (player.isRolling) {
+    const rollProgress = player.rollDuration - player.rollTimer;
+
+    // visual only: sprite moves slightly up during the roll
+    // player hitbox position stays unchanged
+    const rollLift = Math.sin((rollProgress / player.rollDuration) * Math.PI) * 12;
+
+    drawY -= rollLift;
+  }
+
+  ctx.save();
+
+  if (player.isRolling) {
+    ctx.fillStyle = "rgba(80, 60, 40, 0.25)";
+    ctx.fillRect(drawX - 8, drawY + drawHeight - 6, 18, 3);
+  }
+
+  if (shouldFlip) {
+    ctx.translate(drawX + drawWidth, drawY);
+    ctx.scale(-1, 1);
+
+    ctx.drawImage(
+      playerSprite,
+      sourceX,
+      sourceY,
+      frameWidth,
+      frameHeight,
+      0,
+      0,
+      drawWidth,
+      drawHeight
+    );
+  } else {
+    ctx.drawImage(
+      playerSprite,
+      sourceX,
+      sourceY,
+      frameWidth,
+      frameHeight,
+      drawX,
+      drawY,
+      drawWidth,
+      drawHeight
+    );
+  }
+
+  ctx.restore();
 }
 
 // draw score and text
@@ -993,7 +1456,12 @@ function drawUI() {
   // Score and bird counters
   ctx.fillText("Score: " + score, 20, 30);
   ctx.fillText("Birds Saved: " + birdsSaved, 20, 55);
+  ctx.fillText("Streak: " + birdSaveStreak + "/" + rushNeeded, 20, 80);
 
+  if (rushMode) {
+    ctx.fillStyle = "orange";
+    ctx.fillText("RUSH MODE: " + Math.ceil(rushTimer / 60) + "s", 20, 105);
+  }
   // game over message
   if (gameState === "gameOver") {
     // result panel
@@ -1065,6 +1533,32 @@ function drawFeedbackTexts() {
   }
 }
 
+function drawBandAids() {
+  for (let i = 0; i < bandAids.length; i++) {
+    const bandAid = bandAids[i];
+
+    ctx.save();
+
+    ctx.translate(bandAid.x, bandAid.y);
+    ctx.rotate(-0.4);
+
+    // band-aid body
+    ctx.fillStyle = "#f4c28b";
+    ctx.fillRect(-10, -4, 20, 8);
+
+    // band-aid center pad
+    ctx.fillStyle = "#fff1d6";
+    ctx.fillRect(-3, -3, 6, 6);
+
+    // tiny red cross
+    ctx.fillStyle = "red";
+    ctx.fillRect(-1, -3, 2, 6);
+    ctx.fillRect(-3, -1, 6, 2);
+
+    ctx.restore();
+  }
+}
+
 // main draw function
 function draw() {
   // clear old frame
@@ -1078,15 +1572,16 @@ function draw() {
 
   // draw everything in order
   drawBackground();
-  drawLanes();
-  drawGround();
-  drawBirdRescueLines();
+  //drawLanes();
+  //drawGround();
+  //drawBirdRescueLines();
   drawBirds();
   drawObstacles();
   drawSideObstacles();
   drawPlayer();
   drawFeedbackTexts();
   drawUI();
+  drawBandAids();
 }
 
 // =========================
@@ -1103,6 +1598,10 @@ function resetObjectsOnly() {
   birdsSaved = 0;
   birdsMissed = 0;
 
+  birdSaveStreak = 0;
+  rushMode = false;
+  rushTimer = 0;
+  
   // reset lane
   currentLane = 1;
 
@@ -1129,6 +1628,8 @@ function resetObjectsOnly() {
 
   // reset feedback texts
   feedbackTexts.length = 0;
+
+  bandAids.length = 0;
 }
 
 // reset function
@@ -1196,11 +1697,13 @@ document.addEventListener("keydown", function(event) {
   // move to right lane
   if (event.key === "ArrowRight" && currentLane < lanes.length - 1) {
     currentLane++;
+    setPlayerAction("dashRight", 18);
   }
 
   // move to left lane
   if (event.key === "ArrowLeft" && currentLane > 0) {
     currentLane--;
+    setPlayerAction("dashLeft", 18);
   }
 
   // jump input
@@ -1214,16 +1717,22 @@ document.addEventListener("keydown", function(event) {
 
   // save left bird
   if (event.key === "z" || event.key === "Z") {
+    setPlayerAction("throw", 20);
+    spawnBandAid("z");
     saveBird("z");
   }
 
   // save middle bird
   if (event.key === "x" || event.key === "X") {
+    setPlayerAction("throw", 20);
+    spawnBandAid("x");
     saveBird("x");
   }
 
   // save right bird
   if (event.key === "c" || event.key === "C") {
+    setPlayerAction("throw", 20);
+    spawnBandAid("c");
     saveBird("c");
   }
 
