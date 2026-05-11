@@ -80,7 +80,3 @@ No external libraries are required.
 - CSS
 - JavaScript
 - HTML5 Canvas
-
-## Project Status
-
-Core gameplay is implemented. Visual polish and final report preparation are the next steps.
