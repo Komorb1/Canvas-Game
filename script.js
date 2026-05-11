@@ -617,6 +617,7 @@ function spawnBandAid(targetKey) {
   let targetX;
   let targetY;
 
+  
   // aim at the first falling bird that matches the pressed key
   let targetBird = null;
 
